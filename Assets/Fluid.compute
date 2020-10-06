@@ -1,0 +1,120 @@
+﻿#pragma kernel StepKernel
+
+struct Jet
+{
+    float2 pos;
+    float2 velocity;
+    float4 color;
+    float size;
+};
+
+
+float2 resolution;
+float decay;
+
+Texture2D<float4> In;
+SamplerState samplerIn;
+RWTexture2D<float4> Out;
+
+Texture2D<float4> DrawIn;
+SamplerState samplerDrawIn;
+RWTexture2D<float4> DrawOut;
+
+StructuredBuffer<Jet> jets;
+int njets;
+
+float4 Sample(Texture2D<float4> t, SamplerState s, float2 coords) {
+    return t.SampleLevel(samplerIn, coords / resolution, 0);
+}
+
+void Fluid(float2 coord, float2 offset, inout float2 velocity, inout float pressure, inout float divergence, inout float neighbors)
+{
+    // Sample buffer C, which samples B, which samples A, making our feedback loop    
+    float4 s = Sample(In, samplerIn, coord + offset - Sample(In, samplerIn, coord + offset).xy);
+
+    // gradient of pressure from the neighboring cell to ours
+    float sampledPressure = s.w;
+
+    //add the velocity scaled by the pressure that its exerting
+    velocity += offset * sampledPressure;
+
+    // add pressure
+    pressure += sampledPressure;
+
+    // divergence of velocity
+    divergence += dot(offset, s.xy);
+
+    //increase number of neighbors sampled
+    neighbors++;
+}
+
+float4 StepVelocity(float2 id) {
+
+    //sample from the previous state    
+    float4 values = Sample(In, samplerIn, id - Sample(In, samplerIn, id).xy);
+
+    float2 velocity = float2(0, 0);
+    float divergence = 0.;
+    float pressure = 0., neighbors = 0.;
+
+    Fluid(id.xy, float2(0., 1.), velocity, pressure, divergence, neighbors);
+    Fluid(id.xy, float2(0., -1.), velocity, pressure, divergence, neighbors);
+    Fluid(id.xy, float2(1., 0.), velocity, pressure, divergence, neighbors);
+    Fluid(id.xy, float2(-1., 0.), velocity, pressure, divergence, neighbors);
+
+    //average the samples
+    velocity /= neighbors;
+    divergence /= neighbors;
+    pressure /= neighbors;
+
+    //output pressure in w, velocity in xy
+    values.w = pressure - divergence;
+    values.xy -= velocity;
+
+    for (int i = 0; i < njets; i++) {
+        if (length(id.xy - resolution * jets[i].pos) < jets[i].size)
+            values.xy = jets[i].velocity;
+    }
+
+    //float2 p1 = float2(.47, .2);
+    //if (length(id.xy - resolution * p1) < 10.) {
+    //    values.xy = float2(0, .5);
+    //}
+    //float2 p2 = float2(.53, .8);
+    //if (length(id.xy - resolution * p2) < 10.) {
+    //    values.xy = float2(0, -.5);
+    //}
+    return values;
+}
+
+float4 StepFluid(float2 id) {
+
+    for (int n = 0; n < 4; n++)
+        id -= Sample(In, samplerIn, id).xy;
+
+    float4 color = Sample(DrawIn, samplerDrawIn, id);
+    
+    for (int i = 0; i < njets; i++) {
+        if (length(id.xy - resolution * jets[i].pos) < jets[i].size) 
+           color = jets[i].color;
+    }
+
+    //float2 p1 = float2(.47, .2);
+    //if (length(id.xy - resolution * p1) < 10.) {
+    //    color = float4(0, 1, 0, 1);
+    //}
+    //float2 p2 = float2(.53, .8);
+    //if (length(id.xy - resolution * p2) < 10.) {
+    //    color = float4(1, 0, 0, 1);
+    //}
+    color *= decay;
+    return color;
+}
+
+[numthreads(8, 8, 1)]
+void StepKernel(uint3 id : SV_DispatchThreadID)
+{
+    float2 coord = float2(id.x + .5, id.y + .5);
+    Out[id.xy] = StepVelocity(coord);
+    DrawOut[id.xy] = StepFluid(coord);
+}
