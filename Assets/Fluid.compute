@@ -76,21 +76,14 @@ float4 StepVelocity(float2 id) {
             values.xy = jets[i].velocity;
     }
 
-    //float2 p1 = float2(.47, .2);
-    //if (length(id.xy - resolution * p1) < 10.) {
-    //    values.xy = float2(0, .5);
-    //}
-    //float2 p2 = float2(.53, .8);
-    //if (length(id.xy - resolution * p2) < 10.) {
-    //    values.xy = float2(0, -.5);
-    //}
     return values;
 }
 
 float4 StepFluid(float2 id) {
 
-    for (int n = 0; n < 4; n++)
+    for (int n = 0; n < 4; n++) {
         id -= Sample(In, samplerIn, id).xy;
+    }
 
     float4 color = Sample(DrawIn, samplerDrawIn, id);
     
@@ -98,15 +91,7 @@ float4 StepFluid(float2 id) {
         if (length(id.xy - resolution * jets[i].pos) < jets[i].size) 
            color = jets[i].color;
     }
-
-    //float2 p1 = float2(.47, .2);
-    //if (length(id.xy - resolution * p1) < 10.) {
-    //    color = float4(0, 1, 0, 1);
-    //}
-    //float2 p2 = float2(.53, .8);
-    //if (length(id.xy - resolution * p2) < 10.) {
-    //    color = float4(1, 0, 0, 1);
-    //}
+        
     color *= decay;
     return color;
 }
